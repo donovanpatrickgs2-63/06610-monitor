@@ -401,6 +401,7 @@
             <input id="seatImport" type="file" accept=".csv,.xlsx,.xls">
           </label>
           <button class="primary" id="saveBtn">保存今日</button>
+          <button id="webbBtn" title="从 Webb-site Legacy 补充行情、CCASS 持股和重点席位变动">同步 Webb-site</button>
           <button id="reportBtn">下载日报</button>
           <button id="exportBtn">导出全部</button>
           <button class="danger" id="clearBtn">清空本地记录</button>
@@ -526,7 +527,7 @@
                 <label for="note">今日一句话判断 / 建议动作</label>
                 <textarea id="note" placeholder="留空则系统按预警与供股窗口自动生成。"></textarea>
               </div>
-              <div class="hint">导入字段可用中文表头或英文别名。席位导入建议字段：日期、席位、持股数、持股比例、净变动股数。Excel 解析依赖页面顶部的 SheetJS CDN；若内网无法访问，请先导出 CSV 再导入。</div>
+              <div class="hint">导入字段可用中文表头或英文别名。席位导入建议字段：日期、席位、持股数、持股比例、净变动股数。Webb-site Legacy 可补充历史行情和 CCASS 数据，但其页面声明准确性、完整性、及时性不作保证，正式日报仍建议证券代表复核。Excel 解析依赖页面顶部的 SheetJS CDN；若内网无法访问，请先用 CSV 导入。</div>
             </div>
           </section>
 
@@ -613,6 +614,8 @@
   <script>
     const STORAGE_KEY = "hk06610MvpRows";
     const LEGACY_KEY = "hk06610DailyMonitorRows";
+    const WEBB_ISSUE_ID = 33511;
+    const WEBB_API = "https://webb-site.qizai.ai/api";
     const KEY_LEVELS = [1.55, 1.35, 1.20, 1.00, 0.90, 0.80];
     const SEAT_NAMES = ["富途", "中金", "京华山一", "耀才", "花旗", "汇丰", "中国银行/中银", "申万", "渣打", "招商"];
     const SEAT_ALIASES = {
@@ -626,6 +629,18 @@
       "申万": ["申万", "shenwan"],
       "渣打": ["渣打", "standard chartered"],
       "招商": ["招商", "cmb", "cms"]
+    };
+    const WEBB_SEAT_MATCHERS = {
+      "富途": [/B01955/i, /FUTU/i],
+      "中金": [/B01654/i, /CHINA INTERNATIONAL CAPITAL/i, /中國國際金融/i],
+      "京华山一": [/B01581/i, /KINGSWAY/i, /京華山一/i],
+      "耀才": [/B01668/i, /BRIGHT SMART/i, /耀才/i],
+      "花旗": [/C00010/i, /CITIBANK/i, /花旗/i],
+      "汇丰": [/C00019/i, /B01089/i, /HONGKONG AND SHANGHAI BANKING/i, /HSBC/i],
+      "中国银行/中银": [/C00033/i, /B01130/i, /BANK OF CHINA/i, /BOCI/i, /中國銀行/i, /中銀/i],
+      "申万": [/B01115/i, /SHENWAN/i, /申萬/i],
+      "渣打": [/C00039/i, /STANDARD CHARTERED/i, /渣打/i],
+      "招商": [/B01148/i, /C00088/i, /C00042/i, /CHINA MERCHANTS/i, /CMB/i, /招商/i]
     };
     const DATA_HEADERS = ["日期", "开盘价", "最高价", "最低价", "收盘价", "涨跌幅", "成交量", "成交额(HK$)", "VWAP", "振幅", "5日均量倍数", "是否预警", "当前判断", "供股窗口", "建议动作"];
 
@@ -717,6 +732,7 @@
         tab.addEventListener("click", () => switchPage(tab.dataset.page));
       });
       document.getElementById("saveBtn").addEventListener("click", saveToday);
+      document.getElementById("webbBtn").addEventListener("click", syncWebbSite);
       document.getElementById("reportBtn").addEventListener("click", exportDailyReport);
       document.getElementById("exportBtn").addEventListener("click", exportAll);
       document.getElementById("clearBtn").addEventListener("click", clearRows);
@@ -1179,6 +1195,106 @@
         }
         upsertRow(evaluateRow(row));
       });
+    }
+
+    async function syncWebbSite() {
+      const button = document.getElementById("webbBtn");
+      button.disabled = true;
+      button.textContent = "同步中...";
+      try {
+        const priceUrl = `${WEBB_API}/ccass/historic_prices?issue_id=${WEBB_ISSUE_ID}`;
+        const priceItems = await fetchWebbItems(priceUrl);
+        if (!priceItems.length) throw new Error("Webb-site 未返回行情数据");
+
+        const latestDate = priceItems[0].atDate;
+        const earliestDate = priceItems[Math.min(priceItems.length - 1, 35)].atDate;
+        const holdingsUrl = `${WEBB_API}/ccass/stock_holdings?issue_id=${WEBB_ISSUE_ID}&include_former=0`;
+        const changesUrl = `${WEBB_API}/ccass/stock_changes?issue_id=${WEBB_ISSUE_ID}&date_from=${encodeURIComponent(earliestDate)}&date_to=${encodeURIComponent(latestDate)}&expand_daily=1`;
+
+        const [holdingsItems, changeItems] = await Promise.all([
+          fetchWebbItems(holdingsUrl),
+          fetchWebbItems(changesUrl)
+        ]);
+
+        const holdingsBySeat = mapWebbSeats(holdingsItems, "holding");
+        const changesByDate = {};
+        changeItems.forEach(item => {
+          const seat = matchWebbSeat(item);
+          if (!seat || !item.atDate) return;
+          changesByDate[item.atDate] ||= {};
+          changesByDate[item.atDate][seat] ||= { holding: null, ratio: null, netChange: 0 };
+          changesByDate[item.atDate][seat].holding = toNumber(item.holding);
+          changesByDate[item.atDate][seat].ratio = fromWebbPct(item.stake);
+          changesByDate[item.atDate][seat].netChange += Number(item.hldchg || 0);
+        });
+
+        priceItems.forEach(item => {
+          const row = rows.find(existing => existing.date === item.atDate) || normalizeRow({ date: item.atDate, seats: {} });
+          row.high = toNumber(item.high);
+          row.low = toNumber(item.low);
+          row.close = toNumber(item.closing);
+          row.changePct = normalizeImportedPct(item.changePercent);
+          row.volume = toNumber(item.volume);
+          row.turnover = toNumber(item.turnover);
+          row.vwap = toNumber(item.vwap);
+          row.amplitude = row.high && row.low ? row.high / row.low - 1 : row.amplitude;
+          row.source = "Webb-site Legacy";
+
+          SEAT_NAMES.forEach(name => {
+            const change = changesByDate[item.atDate] && changesByDate[item.atDate][name];
+            const holding = item.atDate === latestDate ? holdingsBySeat[name] : null;
+            row.seats[name] = {
+              holding: change?.holding ?? holding?.holding ?? row.seats[name].holding,
+              ratio: change?.ratio ?? holding?.ratio ?? row.seats[name].ratio,
+              netChange: change?.netChange ?? row.seats[name].netChange
+            };
+          });
+          upsertRow(evaluateRow(row));
+        });
+
+        rows = rows.map(item => evaluateRow(item)).sort(sortAsc);
+        persistRows();
+        setFormFromRow(latestRow());
+        renderAll();
+        alert(`已从 Webb-site Legacy 补充 ${priceItems.length} 个交易日行情，并同步重点席位 CCASS 数据。请在正式日报前复核来源。`);
+      } catch (error) {
+        alert(`同步 Webb-site 失败：${error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = "同步 Webb-site";
+      }
+    }
+
+    async function fetchWebbItems(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Webb-site 接口返回 ${response.status}`);
+      const payload = await response.json();
+      if (payload.code !== 200) throw new Error(payload.message || "Webb-site API error");
+      return payload.result && Array.isArray(payload.result.items) ? payload.result.items : [];
+    }
+
+    function mapWebbSeats(items) {
+      const mapped = {};
+      SEAT_NAMES.forEach(name => {
+        const matches = items.filter(item => matchWebbSeat(item) === name);
+        if (!matches.length) return;
+        mapped[name] = matches.reduce((sum, item) => ({
+          holding: Number(sum.holding || 0) + Number(item.holding || 0),
+          ratio: Number(sum.ratio || 0) + fromWebbPct(item.stakePct || item.stake || 0),
+          netChange: Number(sum.netChange || 0) + Number(item.hldchg || 0)
+        }), { holding: 0, ratio: 0, netChange: 0 });
+      });
+      return mapped;
+    }
+
+    function matchWebbSeat(item) {
+      const text = [item.CCASSID, item.partName, item.cName].filter(Boolean).join(" ");
+      return SEAT_NAMES.find(name => WEBB_SEAT_MATCHERS[name].some(pattern => pattern.test(text))) || "";
+    }
+
+    function fromWebbPct(value) {
+      const num = toNumber(value);
+      return num === null ? null : num / 100;
     }
 
     function pick(record, names) {
