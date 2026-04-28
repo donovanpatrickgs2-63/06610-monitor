@@ -1,0 +1,1336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>06610 股票异常监控与供股窗口判断工具 MVP</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #182132;
+      --muted: #697489;
+      --line: #d9dfeb;
+      --panel: #ffffff;
+      --page: #eef3f7;
+      --soft: #f6f8fb;
+      --accent: #0d756b;
+      --accent-weak: #e4f3f0;
+      --blue: #295c9f;
+      --blue-weak: #e9f1fb;
+      --warn: #b42318;
+      --warn-weak: #fde7e5;
+      --amber: #a15c07;
+      --amber-weak: #fff0d6;
+      --green: #0b7440;
+      --green-weak: #e5f5eb;
+      --shadow: 0 10px 24px rgba(24, 33, 50, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--page);
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 2px 10px rgba(24, 33, 50, 0.04);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .topbar {
+      max-width: 1520px;
+      margin: 0 auto;
+      padding: 16px 18px;
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    button, .file-button {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--ink);
+      padding: 8px 12px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    button.danger {
+      color: var(--warn);
+      border-color: #f1b8b4;
+      background: #fff8f8;
+    }
+
+    input[type="file"] { display: none; }
+
+    main {
+      max-width: 1520px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      background: #f9fbfd;
+      border-color: var(--line);
+    }
+
+    .tab.active {
+      background: var(--blue);
+      color: white;
+      border-color: var(--blue);
+    }
+
+    .page { display: none; gap: 14px; }
+    .page.active { display: grid; }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(170px, 1fr));
+      gap: 10px;
+    }
+
+    .metric, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .metric {
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 7px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    .metric-value.up { color: var(--green); }
+    .metric-value.down { color: var(--warn); }
+    .metric-value.watch { color: var(--amber); }
+
+    .panel-title {
+      min-height: 48px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .panel-body { padding: 14px; }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(330px, 0.85fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+    }
+
+    .seat-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 36px;
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      background: white;
+    }
+
+    textarea {
+      min-height: 86px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    .hint {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #cfe5e1;
+      background: var(--accent-weak);
+      border-radius: 6px;
+      color: #235b56;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .brief {
+      border-left: 4px solid var(--blue);
+      background: #f8fbff;
+      padding: 14px;
+      border-radius: 6px;
+      line-height: 1.75;
+      font-size: 15px;
+      white-space: pre-wrap;
+    }
+
+    .decision {
+      display: grid;
+      gap: 8px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .decision-row {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .decision-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .decision-key { color: var(--muted); }
+    .decision-value { font-weight: 700; }
+
+    .badge {
+      display: inline-flex;
+      min-width: 34px;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-weight: 700;
+      font-size: 12px;
+      background: #edf2f7;
+      color: #475569;
+    }
+
+    .badge.alert { background: var(--warn-weak); color: var(--warn); }
+    .badge.watch { background: var(--amber-weak); color: var(--amber); }
+    .badge.ok { background: var(--green-weak); color: var(--green); }
+    .badge.info { background: var(--blue-weak); color: var(--blue); }
+
+    .table-shell {
+      overflow: auto;
+      max-height: calc(100vh - 260px);
+    }
+
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      min-width: 1280px;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+      background: white;
+      min-height: 40px;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      color: #3b4658;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    tr.alert-row td { background: #fff8f8; }
+    tr.watch-row td { background: #fffaf0; }
+
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+
+    .empty {
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+      background: #fbfcfe;
+      border-top: 1px solid var(--line);
+    }
+
+    .source-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .rules {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.75;
+      font-size: 13px;
+    }
+
+    @media (max-width: 1100px) {
+      .topbar, .dashboard-grid, .status-strip { grid-template-columns: 1fr; }
+      .toolbar { justify-content: flex-start; }
+      .form-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+      .seat-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+      .table-shell { max-height: none; }
+    }
+
+    @media (max-width: 620px) {
+      main, .topbar { padding-left: 12px; padding-right: 12px; }
+      h1 { font-size: 18px; }
+      .metric-value { font-size: 19px; }
+      .toolbar button, .file-button, .tab { flex: 1 1 100%; }
+      .form-grid, .seat-grid { grid-template-columns: 1fr; }
+      .decision-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <div class="topbar">
+        <div>
+          <h1>06610 股票异常监控与供股窗口判断工具 MVP</h1>
+          <div class="subtitle">内部使用：记录事实、触发预警、生成 CEO 日报；不预测股价，不判断交易主体性质。</div>
+        </div>
+        <div class="toolbar">
+          <label class="file-button" title="导入每日行情 CSV / Excel">
+            导入行情
+            <input id="priceImport" type="file" accept=".csv,.xlsx,.xls">
+          </label>
+          <label class="file-button" title="导入 CCASS 席位变化 CSV / Excel">
+            导入席位
+            <input id="seatImport" type="file" accept=".csv,.xlsx,.xls">
+          </label>
+          <button class="primary" id="saveBtn">保存今日</button>
+          <button id="reportBtn">下载日报</button>
+          <button id="exportBtn">导出全部</button>
+          <button class="danger" id="clearBtn">清空本地记录</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="tabs" role="tablist" aria-label="页面切换">
+        <button class="tab active" data-page="dashboard">首页 Dashboard</button>
+        <button class="tab" data-page="daily">每日数据表</button>
+        <button class="tab" data-page="alerts">预警记录</button>
+      </div>
+
+      <section class="page active" id="page-dashboard">
+        <div class="status-strip">
+          <div class="metric">
+            <div class="metric-label">今日收盘价</div>
+            <div class="metric-value" id="mClose">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">涨跌幅</div>
+            <div class="metric-value" id="mChange">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">成交量</div>
+            <div class="metric-value" id="mVolume">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">VWAP</div>
+            <div class="metric-value" id="mVwap">--</div>
+          </div>
+        </div>
+
+        <div class="status-strip">
+          <div class="metric">
+            <div class="metric-label">是否预警</div>
+            <div class="metric-value" id="mAlert">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">富途净变动</div>
+            <div class="metric-value" id="mFutu">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">中金净变动</div>
+            <div class="metric-value" id="mCicc">--</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">供股窗口</div>
+            <div class="metric-value" id="mRights">--</div>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel">
+            <div class="panel-title">今日录入</div>
+            <div class="panel-body">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="date">日期</label>
+                  <input id="date" type="date">
+                </div>
+                <div class="field">
+                  <label for="open">开盘价</label>
+                  <input id="open" type="number" step="0.001" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="high">最高价</label>
+                  <input id="high" type="number" step="0.001" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="low">最低价</label>
+                  <input id="low" type="number" step="0.001" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="close">收盘价</label>
+                  <input id="close" type="number" step="0.001" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="changePct">涨跌幅</label>
+                  <input id="changePct" type="number" step="0.0001" inputmode="decimal" placeholder="例：0.105">
+                </div>
+                <div class="field">
+                  <label for="volume">成交量</label>
+                  <input id="volume" type="number" step="1" inputmode="numeric">
+                </div>
+                <div class="field">
+                  <label for="turnover">成交额(HK$)</label>
+                  <input id="turnover" type="number" step="0.01" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="vwap">VWAP</label>
+                  <input id="vwap" type="number" step="0.001" inputmode="decimal" placeholder="可自动计算">
+                </div>
+                <div class="field">
+                  <label for="amplitude">振幅</label>
+                  <input id="amplitude" type="number" step="0.0001" inputmode="decimal" placeholder="可自动计算">
+                </div>
+                <div class="field">
+                  <label for="manualStatus">人工判断</label>
+                  <select id="manualStatus">
+                    <option value="">自动判断</option>
+                    <option value="正常">正常</option>
+                    <option value="继续观察">继续观察</option>
+                    <option value="预警">预警</option>
+                    <option value="需升级FA或律师">需升级FA或律师</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="role">当前角色</label>
+                  <select id="role">
+                    <option>证券代表</option>
+                    <option>CEO</option>
+                    <option>FA/律师</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="panel-title" style="padding-left:0;padding-right:0;margin-top:14px;border-top:1px solid var(--line);">重点席位</div>
+              <div class="seat-grid" id="seatInputs"></div>
+
+              <div class="field full" style="margin-top:10px;">
+                <label for="note">今日一句话判断 / 建议动作</label>
+                <textarea id="note" placeholder="留空则系统按预警与供股窗口自动生成。"></textarea>
+              </div>
+              <div class="hint">导入字段可用中文表头或英文别名。席位导入建议字段：日期、席位、持股数、持股比例、净变动股数。Excel 解析依赖页面顶部的 SheetJS CDN；若内网无法访问，请先导出 CSV 再导入。</div>
+            </div>
+          </section>
+
+          <aside class="panel">
+            <div class="panel-title">CEO 日报</div>
+            <div class="panel-body">
+              <div class="brief" id="briefText">暂无记录。请导入或保存今日数据。</div>
+              <div class="decision" style="margin-top:14px;">
+                <div class="decision-row">
+                  <div class="decision-key">当前判断</div>
+                  <div class="decision-value" id="decisionText">--</div>
+                </div>
+                <div class="decision-row">
+                  <div class="decision-key">供股窗口</div>
+                  <div class="decision-value" id="rightsText">--</div>
+                </div>
+                <div class="decision-row">
+                  <div class="decision-key">建议动作</div>
+                  <div class="decision-value" id="actionText">--</div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <section class="panel">
+          <div class="panel-title">MVP 规则</div>
+          <div class="panel-body">
+            <ul class="rules">
+              <li>股价：单日涨跌幅绝对值 ≥ 10%、振幅 ≥ 15%、收盘价突破或跌破 1.55 / 1.35 / 1.20 / 1.00 / 0.90 / 0.80 港元。</li>
+              <li>成交：当日成交量大于过去 5 日均量 3 倍，或成交额明显放大。</li>
+              <li>席位：富途、中金或任一重点席位单日净变动绝对值 ≥ 300,000 股；富途连续 3 日净流入或净流出；中金短期大进大出。</li>
+              <li>供股观察区：收盘价 0.80-1.10 港元，连续 5 个交易日无大幅异常波动，成交量回落，富途和中金无大额异常迁移。</li>
+              <li>供股暂缓区：收盘价高于 1.20 港元且波动大，或触发价格、成交、席位任一重大异常。</li>
+            </ul>
+          </div>
+        </section>
+      </section>
+
+      <section class="page" id="page-daily">
+        <section class="panel">
+          <div class="panel-title">
+            <span>每日行情和席位变化</span>
+            <div class="source-row">
+              <span>支持手工录入、CSV / Excel 导入、本地存储</span>
+            </div>
+          </div>
+          <div class="table-shell">
+            <table id="dailyTable">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty" id="dailyEmpty">暂无每日数据。</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="page" id="page-alerts">
+        <section class="panel">
+          <div class="panel-title">
+            <span>预警记录</span>
+            <span class="muted small" id="alertCount">0 条</span>
+          </div>
+          <div class="table-shell">
+            <table id="alertTable">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>级别</th>
+                  <th>触发原因</th>
+                  <th>建议动作</th>
+                  <th>供股窗口判断</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty" id="alertEmpty">暂无预警记录。</div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "hk06610MvpRows";
+    const LEGACY_KEY = "hk06610DailyMonitorRows";
+    const KEY_LEVELS = [1.55, 1.35, 1.20, 1.00, 0.90, 0.80];
+    const SEAT_NAMES = ["富途", "中金", "京华山一", "耀才", "花旗", "汇丰", "中国银行/中银", "申万", "渣打", "招商"];
+    const SEAT_ALIASES = {
+      "富途": ["富途", "futu"],
+      "中金": ["中金", "cicc", "中国国际金融"],
+      "京华山一": ["京华山一", "kingston"],
+      "耀才": ["耀才", "bright smart"],
+      "花旗": ["花旗", "citi", "citibank"],
+      "汇丰": ["汇丰", "hsbc"],
+      "中国银行/中银": ["中国银行", "中银", "boc", "bank of china"],
+      "申万": ["申万", "shenwan"],
+      "渣打": ["渣打", "standard chartered"],
+      "招商": ["招商", "cmb", "cms"]
+    };
+    const DATA_HEADERS = ["日期", "开盘价", "最高价", "最低价", "收盘价", "涨跌幅", "成交量", "成交额(HK$)", "VWAP", "振幅", "5日均量倍数", "是否预警", "当前判断", "供股窗口", "建议动作"];
+
+    const inputs = {};
+    const scalarIds = ["date", "open", "high", "low", "close", "changePct", "volume", "turnover", "vwap", "amplitude", "manualStatus", "role", "note"];
+    scalarIds.forEach(id => inputs[id] = document.getElementById(id));
+
+    let rows = migrateRows(loadRows());
+    buildSeatInputs();
+    bindEvents();
+    initializeForm();
+    renderAll();
+
+    function todayHongKong() {
+      const now = new Date();
+      const hk = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }));
+      return hk.toISOString().slice(0, 10);
+    }
+
+    function loadRows() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function persistRows() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    }
+
+    function migrateRows(list) {
+      return (Array.isArray(list) ? list : []).map(row => {
+        const migrated = normalizeRow({
+          date: row.date,
+          open: row.open,
+          high: row.high,
+          low: row.low,
+          close: row.close ?? row.closePrice,
+          changePct: row.changePct,
+          volume: row.volume,
+          turnover: row.turnover,
+          vwap: row.vwap,
+          amplitude: row.amplitude,
+          note: row.note ?? row.actionNote,
+          seats: row.seats || {}
+        });
+        if (!migrated.seats["富途"].netChange && row.futuNet !== undefined) migrated.seats["富途"].netChange = toNumber(row.futuNet);
+        if (!migrated.seats["中金"].netChange && row.ciccNet !== undefined) migrated.seats["中金"].netChange = toNumber(row.ciccNet);
+        return migrated;
+      });
+    }
+
+    function buildSeatInputs() {
+      const wrap = document.getElementById("seatInputs");
+      wrap.innerHTML = SEAT_NAMES.map(name => `
+        <div class="panel" style="box-shadow:none;border-radius:6px;">
+          <div class="panel-title" style="min-height:38px;padding:9px 10px;">${escapeHtml(name)}</div>
+          <div class="panel-body" style="padding:10px;display:grid;gap:8px;">
+            <div>
+              <label for="${seatId(name, "holding")}">持股数</label>
+              <input id="${seatId(name, "holding")}" type="number" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="${seatId(name, "ratio")}">持股比例</label>
+              <input id="${seatId(name, "ratio")}" type="number" step="0.0001" inputmode="decimal" placeholder="例：0.052">
+            </div>
+            <div>
+              <label for="${seatId(name, "netChange")}">净变动股数</label>
+              <input id="${seatId(name, "netChange")}" type="number" step="1" inputmode="numeric">
+            </div>
+          </div>
+        </div>
+      `).join("");
+      SEAT_NAMES.forEach(name => {
+        inputs[seatId(name, "holding")] = document.getElementById(seatId(name, "holding"));
+        inputs[seatId(name, "ratio")] = document.getElementById(seatId(name, "ratio"));
+        inputs[seatId(name, "netChange")] = document.getElementById(seatId(name, "netChange"));
+      });
+    }
+
+    function seatId(name, field) {
+      return `seat_${SEAT_NAMES.indexOf(name)}_${field}`;
+    }
+
+    function bindEvents() {
+      document.querySelectorAll(".tab").forEach(tab => {
+        tab.addEventListener("click", () => switchPage(tab.dataset.page));
+      });
+      document.getElementById("saveBtn").addEventListener("click", saveToday);
+      document.getElementById("reportBtn").addEventListener("click", exportDailyReport);
+      document.getElementById("exportBtn").addEventListener("click", exportAll);
+      document.getElementById("clearBtn").addEventListener("click", clearRows);
+      document.getElementById("priceImport").addEventListener("change", event => importFile(event, "price"));
+      document.getElementById("seatImport").addEventListener("change", event => importFile(event, "seat"));
+      ["open", "high", "low", "close", "volume", "turnover"].forEach(id => {
+        inputs[id].addEventListener("input", updateDerivedInputs);
+      });
+    }
+
+    function initializeForm() {
+      inputs.date.value = todayHongKong();
+      inputs.role.value = "证券代表";
+      if (rows.length) setFormFromRow(latestRow());
+    }
+
+    function switchPage(page) {
+      document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.page === page));
+      document.querySelectorAll(".page").forEach(section => section.classList.toggle("active", section.id === `page-${page}`));
+    }
+
+    function updateDerivedInputs() {
+      const volume = numInput("volume");
+      const turnover = numInput("turnover");
+      const high = numInput("high");
+      const low = numInput("low");
+      const close = numInput("close");
+      const open = numInput("open");
+      if (volume && turnover && !inputs.vwap.matches(":focus")) inputs.vwap.value = (turnover / volume).toFixed(3);
+      if (high && low && low > 0 && !inputs.amplitude.matches(":focus")) inputs.amplitude.value = ((high / low) - 1).toFixed(4);
+      if (open && close && open > 0 && !inputs.changePct.matches(":focus")) inputs.changePct.value = ((close / open) - 1).toFixed(4);
+    }
+
+    function numInput(id) {
+      return toNumber(inputs[id].value);
+    }
+
+    function toNumber(value) {
+      if (value === null || value === undefined || value === "") return null;
+      const cleaned = String(value).replace(/[% ,，]/g, "");
+      if (!cleaned) return null;
+      const parsed = Number(cleaned);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function normalizeRatio(value) {
+      const num = toNumber(value);
+      if (num === null) return null;
+      return num > 1 ? num / 100 : num;
+    }
+
+    function buildRowFromForm() {
+      const seats = {};
+      SEAT_NAMES.forEach(name => {
+        seats[name] = {
+          holding: numInput(seatId(name, "holding")),
+          ratio: normalizeRatio(inputs[seatId(name, "ratio")].value),
+          netChange: numInput(seatId(name, "netChange"))
+        };
+      });
+      const row = normalizeRow({
+        date: inputs.date.value || todayHongKong(),
+        open: numInput("open"),
+        high: numInput("high"),
+        low: numInput("low"),
+        close: numInput("close"),
+        changePct: numInput("changePct"),
+        volume: numInput("volume"),
+        turnover: numInput("turnover"),
+        vwap: numInput("vwap"),
+        amplitude: numInput("amplitude"),
+        manualStatus: inputs.manualStatus.value,
+        role: inputs.role.value,
+        note: inputs.note.value.trim(),
+        seats
+      });
+      return evaluateRow(row);
+    }
+
+    function normalizeRow(row) {
+      const normalized = {
+        date: row.date || todayHongKong(),
+        open: toNumber(row.open),
+        high: toNumber(row.high),
+        low: toNumber(row.low),
+        close: toNumber(row.close),
+        changePct: toNumber(row.changePct),
+        volume: toNumber(row.volume),
+        turnover: toNumber(row.turnover),
+        vwap: toNumber(row.vwap),
+        amplitude: toNumber(row.amplitude),
+        manualStatus: row.manualStatus || "",
+        role: row.role || "证券代表",
+        note: row.note || "",
+        seats: {}
+      };
+
+      if (normalized.vwap === null && normalized.turnover !== null && normalized.volume) {
+        normalized.vwap = normalized.turnover / normalized.volume;
+      }
+      if (normalized.amplitude === null && normalized.high !== null && normalized.low) {
+        normalized.amplitude = normalized.high / normalized.low - 1;
+      }
+      if (normalized.changePct === null && normalized.open && normalized.close !== null) {
+        normalized.changePct = normalized.close / normalized.open - 1;
+      }
+
+      SEAT_NAMES.forEach(name => {
+        const src = row.seats && row.seats[name] ? row.seats[name] : {};
+        normalized.seats[name] = {
+          holding: toNumber(src.holding),
+          ratio: normalizeRatio(src.ratio),
+          netChange: toNumber(src.netChange)
+        };
+      });
+      return normalized;
+    }
+
+    function evaluateRow(row) {
+      const history = rows
+        .filter(item => item.date !== row.date)
+        .concat(row)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const index = history.findIndex(item => item.date === row.date);
+      const previousFive = history.slice(Math.max(0, index - 5), index).filter(item => item.volume);
+      const avg5 = previousFive.length ? previousFive.reduce((sum, item) => sum + Number(item.volume || 0), 0) / previousFive.length : null;
+      const volumeMultiple = avg5 && row.volume ? row.volume / avg5 : null;
+      const warnings = collectWarnings(row, history, index, volumeMultiple);
+      const rights = judgeRightsWindow(row, history, index, volumeMultiple, warnings);
+      const decision = row.manualStatus || judgeStatus(warnings, rights);
+      const action = makeAction(decision, rights, warnings);
+      const note = row.note || action;
+
+      return {
+        ...row,
+        avg5,
+        volumeMultiple,
+        warnings,
+        alert: warnings.length ? "是" : "否",
+        rightsWindow: rights.label,
+        rightsReason: rights.reason,
+        decision,
+        action,
+        note,
+        brief: makeBrief(row, volumeMultiple, warnings, decision, rights, note)
+      };
+    }
+
+    function collectWarnings(row, history, index, volumeMultiple) {
+      const warnings = [];
+      if (Math.abs(Number(row.changePct || 0)) >= 0.10) warnings.push(`单日涨跌幅 ${formatPct(row.changePct)}，达到 10% 阈值`);
+      if (Math.abs(Number(row.amplitude || 0)) >= 0.15) warnings.push(`振幅 ${formatPct(row.amplitude)}，达到 15% 阈值`);
+      const prev = index > 0 ? history[index - 1] : null;
+      if (prev && row.close !== null && prev.close !== null) {
+        KEY_LEVELS.forEach(level => {
+          if (prev.close < level && row.close >= level) warnings.push(`收盘价突破关键价位 ${level.toFixed(2)} 港元`);
+          if (prev.close >= level && row.close < level) warnings.push(`收盘价跌破关键价位 ${level.toFixed(2)} 港元`);
+        });
+      } else if (row.close !== null && KEY_LEVELS.includes(Number(row.close.toFixed(2)))) {
+        warnings.push(`收盘价位于关键价位 ${row.close.toFixed(2)} 港元`);
+      }
+      if (volumeMultiple !== null && volumeMultiple > 3) warnings.push(`成交量为 5 日均量 ${volumeMultiple.toFixed(2)} 倍`);
+      if (row.turnover && row.vwap && volumeMultiple !== null && volumeMultiple > 2.5) warnings.push("成交额明显放大");
+
+      SEAT_NAMES.forEach(name => {
+        const net = Number(row.seats[name].netChange || 0);
+        if (Math.abs(net) >= 300000) warnings.push(`${name} 单日净变动 ${formatNumber(net, 0)} 股`);
+      });
+
+      const recentFutu = history.slice(Math.max(0, index - 2), index + 1).map(item => Number(item.seats["富途"].netChange || 0));
+      if (recentFutu.length === 3 && recentFutu.every(v => v > 0)) warnings.push("富途连续 3 日净流入");
+      if (recentFutu.length === 3 && recentFutu.every(v => v < 0)) warnings.push("富途连续 3 日净流出");
+
+      const recentCicc = history.slice(Math.max(0, index - 4), index + 1).map(item => Number(item.seats["中金"].netChange || 0));
+      const hasCiccInOut = recentCicc.some(v => v >= 300000) && recentCicc.some(v => v <= -300000);
+      if (hasCiccInOut) warnings.push("中金短期大进大出");
+
+      return [...new Set(warnings)];
+    }
+
+    function judgeRightsWindow(row, history, index, volumeMultiple, warnings) {
+      const lastFive = history.slice(Math.max(0, index - 4), index + 1);
+      const noLargeVolatility = lastFive.length >= 5 && lastFive.every(item => Math.abs(Number(item.changePct || 0)) < 0.10 && Math.abs(Number(item.amplitude || 0)) < 0.15);
+      const volumeBack = volumeMultiple === null || volumeMultiple <= 1.2;
+      const noSeatMigration = Math.abs(Number(row.seats["富途"].netChange || 0)) < 300000 && Math.abs(Number(row.seats["中金"].netChange || 0)) < 300000;
+      const inPriceBand = row.close !== null && row.close >= 0.80 && row.close <= 1.10;
+      const highAndVolatile = row.close !== null && row.close > 1.20 && (Math.abs(Number(row.changePct || 0)) >= 0.06 || Math.abs(Number(row.amplitude || 0)) >= 0.10);
+      const majorAbnormal = warnings.some(text => /涨跌幅|成交量|净变动|连续|大进大出/.test(text));
+
+      if (highAndVolatile || majorAbnormal) {
+        return { label: "供股暂缓区", reason: "暂不建议作为供股公告窗口，继续观察。" };
+      }
+      if (inPriceBand && noLargeVolatility && volumeBack && noSeatMigration) {
+        return { label: "供股观察区", reason: "进入供股观察区，建议 FA 更新 TDE 测算。" };
+      }
+      if (row.close !== null && row.close > 1.10) {
+        return { label: "价格仍偏高", reason: "当前价格仍偏高，供股窗口继续观察。" };
+      }
+      return { label: "接近观察区", reason: "接近观察区，等待波动、成交和重点席位进一步稳定。" };
+    }
+
+    function judgeStatus(warnings, rights) {
+      if (warnings.some(text => /净变动|连续|大进大出/.test(text)) || rights.label === "供股暂缓区") return "需升级FA或律师";
+      if (warnings.length) return "预警";
+      if (rights.label === "供股观察区" || rights.label === "接近观察区") return "继续观察";
+      return "正常";
+    }
+
+    function makeAction(decision, rights, warnings) {
+      if (decision === "需升级FA或律师") return "向 CEO、FA、律师及公司秘书同步事实记录，并保存行情和 CCASS 截图。";
+      if (decision === "预警") return "向 CEO 和公司秘书同步预警原因，继续核对席位变化。";
+      if (rights.label === "供股观察区") return "建议 FA 更新 TDE 测算，证券代表继续每日监控。";
+      if (decision === "继续观察") return "继续观察价格、成交量和重点席位是否稳定。";
+      return "未触发预警，按日常监控留痕。";
+    }
+
+    function makeBrief(row, volumeMultiple, warnings, decision, rights, note) {
+      const futu = row.seats["富途"].netChange;
+      const cicc = row.seats["中金"].netChange;
+      const otherAbnormal = SEAT_NAMES
+        .filter(name => !["富途", "中金"].includes(name))
+        .filter(name => Math.abs(Number(row.seats[name].netChange || 0)) >= 300000)
+        .map(name => `${name}${formatSigned(row.seats[name].netChange)}股`);
+      return `今日06610收盘价${formatMoney(row.close)}港元，涨跌${formatPct(row.changePct)}，成交量${formatNumber(row.volume, 0)}股，为5日均量${volumeMultiple === null ? "--" : volumeMultiple.toFixed(2)}倍，VWAP为${formatMoney(row.vwap)}港元。
+富途净变动${formatSigned(futu)}股，中金净变动${formatSigned(cicc)}股，其他异常席位为${otherAbnormal.length ? otherAbnormal.join("、") : "无"}。
+今日${warnings.length ? "触发预警" : "未触发预警"}。
+当前判断：${decision}。
+供股窗口判断：${rights.label}。${rights.reason}
+建议动作：${note}`;
+    }
+
+    function saveToday() {
+      const row = buildRowFromForm();
+      if (!row.date || row.close === null) {
+        alert("请至少填写日期和收盘价。");
+        return;
+      }
+      const index = rows.findIndex(item => item.date === row.date);
+      if (index >= 0) rows[index] = row;
+      else rows.push(row);
+      rows = rows.map(item => evaluateRow(item)).sort(sortAsc);
+      persistRows();
+      setFormFromRow(latestRow());
+      renderAll();
+    }
+
+    function setFormFromRow(row) {
+      inputs.date.value = row.date || todayHongKong();
+      ["open", "high", "low", "close", "changePct", "volume", "turnover", "vwap", "amplitude"].forEach(id => {
+        inputs[id].value = row[id] ?? "";
+      });
+      inputs.manualStatus.value = row.manualStatus || "";
+      inputs.role.value = row.role || "证券代表";
+      inputs.note.value = row.note || "";
+      SEAT_NAMES.forEach(name => {
+        inputs[seatId(name, "holding")].value = row.seats[name].holding ?? "";
+        inputs[seatId(name, "ratio")].value = row.seats[name].ratio ?? "";
+        inputs[seatId(name, "netChange")].value = row.seats[name].netChange ?? "";
+      });
+    }
+
+    function latestRow() {
+      return rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+    }
+
+    function sortAsc(a, b) {
+      return String(a.date).localeCompare(String(b.date));
+    }
+
+    function renderAll() {
+      rows = rows.map(item => evaluateRow(item)).sort(sortAsc);
+      persistRows();
+      renderDashboard();
+      renderDailyTable();
+      renderAlertTable();
+    }
+
+    function renderDashboard() {
+      const row = latestRow();
+      const set = (id, text, cls = "") => {
+        const el = document.getElementById(id);
+        el.textContent = text;
+        el.className = `metric-value ${cls}`;
+      };
+      if (!row) {
+        ["mClose", "mChange", "mVolume", "mVwap", "mAlert", "mFutu", "mCicc", "mRights"].forEach(id => set(id, "--"));
+        document.getElementById("briefText").textContent = "暂无记录。请导入或保存今日数据。";
+        document.getElementById("decisionText").textContent = "--";
+        document.getElementById("rightsText").textContent = "--";
+        document.getElementById("actionText").textContent = "--";
+        return;
+      }
+      set("mClose", formatMoney(row.close), row.close >= 1.2 ? "watch" : "");
+      set("mChange", formatPct(row.changePct), Number(row.changePct || 0) >= 0 ? "up" : "down");
+      set("mVolume", formatNumber(row.volume, 0));
+      set("mVwap", formatMoney(row.vwap));
+      set("mAlert", row.alert, row.alert === "是" ? "down" : "up");
+      set("mFutu", `${formatSigned(row.seats["富途"].netChange)}股`, Math.abs(Number(row.seats["富途"].netChange || 0)) >= 300000 ? "down" : "");
+      set("mCicc", `${formatSigned(row.seats["中金"].netChange)}股`, Math.abs(Number(row.seats["中金"].netChange || 0)) >= 300000 ? "down" : "");
+      set("mRights", row.rightsWindow, row.rightsWindow === "供股暂缓区" ? "down" : row.rightsWindow === "供股观察区" ? "up" : "watch");
+      document.getElementById("briefText").textContent = row.brief;
+      document.getElementById("decisionText").textContent = row.decision;
+      document.getElementById("rightsText").textContent = `${row.rightsWindow}：${row.rightsReason}`;
+      document.getElementById("actionText").textContent = row.action;
+    }
+
+    function renderDailyTable() {
+      const table = document.getElementById("dailyTable");
+      const extraHeaders = SEAT_NAMES.flatMap(name => [`${name}持股数`, `${name}持股比例`, `${name}净变动`]);
+      const headers = DATA_HEADERS.concat(extraHeaders);
+      table.querySelector("thead").innerHTML = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
+      const tbody = table.querySelector("tbody");
+      tbody.innerHTML = "";
+      document.getElementById("dailyEmpty").style.display = rows.length ? "none" : "block";
+      rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).forEach(row => {
+        const rowClass = row.alert === "是" ? "alert-row" : row.rightsWindow === "接近观察区" ? "watch-row" : "";
+        const cells = [
+          row.date, formatMoney(row.open), formatMoney(row.high), formatMoney(row.low), formatMoney(row.close), formatPct(row.changePct),
+          formatNumber(row.volume, 0), formatNumber(row.turnover, 2), formatMoney(row.vwap), formatPct(row.amplitude),
+          row.volumeMultiple === null ? "--" : row.volumeMultiple.toFixed(2), row.alert, row.decision, row.rightsWindow, row.action
+        ];
+        SEAT_NAMES.forEach(name => {
+          cells.push(formatNumber(row.seats[name].holding, 0), formatPct(row.seats[name].ratio), formatSigned(row.seats[name].netChange));
+        });
+        const tr = document.createElement("tr");
+        tr.className = rowClass;
+        tr.innerHTML = cells.map((cell, idx) => `<td class="${idx > 0 && idx !== 11 && idx !== 12 && idx !== 13 && idx !== 14 ? "num" : ""}">${escapeHtml(cell)}</td>`).join("");
+        tr.addEventListener("click", () => {
+          setFormFromRow(row);
+          switchPage("dashboard");
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderAlertTable() {
+      const alerts = rows.filter(row => row.alert === "是");
+      document.getElementById("alertCount").textContent = `${alerts.length} 条`;
+      document.getElementById("alertEmpty").style.display = alerts.length ? "none" : "block";
+      const tbody = document.querySelector("#alertTable tbody");
+      tbody.innerHTML = "";
+      alerts.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).forEach(row => {
+        const tr = document.createElement("tr");
+        tr.className = row.decision === "需升级FA或律师" ? "alert-row" : "watch-row";
+        tr.innerHTML = `
+          <td>${escapeHtml(row.date)}</td>
+          <td><span class="badge ${row.decision === "需升级FA或律师" ? "alert" : "watch"}">${escapeHtml(row.decision)}</span></td>
+          <td>${escapeHtml(row.warnings.join("；"))}</td>
+          <td>${escapeHtml(row.action)}</td>
+          <td>${escapeHtml(row.rightsWindow)}：${escapeHtml(row.rightsReason)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function importFile(event, type) {
+      const file = event.target.files[0];
+      event.target.value = "";
+      if (!file) return;
+      try {
+        const records = await parseFile(file);
+        if (type === "price") importPriceRows(records);
+        else importSeatRows(records);
+        rows = rows.map(item => evaluateRow(item)).sort(sortAsc);
+        persistRows();
+        if (rows.length) setFormFromRow(latestRow());
+        renderAll();
+        alert(`已导入 ${records.length} 行${type === "price" ? "行情" : "席位"}数据。`);
+      } catch (error) {
+        alert(`导入失败：${error.message}`);
+      }
+    }
+
+    async function parseFile(file) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv")) return parseCsv(await file.text());
+      if (!window.XLSX) throw new Error("Excel 解析库未加载。请检查网络或改用 CSV 导入。");
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      return XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    }
+
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let value = "";
+      let quoted = false;
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const next = text[i + 1];
+        if (char === '"' && quoted && next === '"') {
+          value += '"';
+          i++;
+        } else if (char === '"') {
+          quoted = !quoted;
+        } else if (char === "," && !quoted) {
+          row.push(value);
+          value = "";
+        } else if ((char === "\n" || char === "\r") && !quoted) {
+          if (char === "\r" && next === "\n") i++;
+          row.push(value);
+          if (row.some(cell => String(cell).trim() !== "")) rows.push(row);
+          row = [];
+          value = "";
+        } else {
+          value += char;
+        }
+      }
+      row.push(value);
+      if (row.some(cell => String(cell).trim() !== "")) rows.push(row);
+      if (!rows.length) return [];
+      const headers = rows.shift().map(cell => String(cell).trim());
+      return rows.map(cells => Object.fromEntries(headers.map((header, idx) => [header, cells[idx] ?? ""])));
+    }
+
+    function importPriceRows(records) {
+      records.forEach(record => {
+        const row = normalizeRow({
+          date: pick(record, ["日期", "交易日", "date"]),
+          open: pick(record, ["开盘价", "开盘", "open"]),
+          high: pick(record, ["最高价", "最高", "high"]),
+          low: pick(record, ["最低价", "最低", "low"]),
+          close: pick(record, ["收盘价", "收盘", "close"]),
+          changePct: normalizeImportedPct(pick(record, ["涨跌幅", "changePct", "change", "涨跌"])),
+          volume: pick(record, ["成交量", "成交股数", "volume"]),
+          turnover: pick(record, ["成交额", "成交金额", "成交额(HK$)", "turnover"]),
+          vwap: pick(record, ["VWAP", "vwap"]),
+          amplitude: normalizeImportedPct(pick(record, ["振幅", "amplitude"])),
+          seats: {}
+        });
+        if (!row.date || row.close === null) return;
+        const old = rows.find(item => item.date === row.date);
+        const merged = old ? { ...old, ...row, seats: old.seats } : row;
+        upsertRow(evaluateRow(merged));
+      });
+    }
+
+    function importSeatRows(records) {
+      records.forEach(record => {
+        const date = pick(record, ["日期", "交易日", "date"]);
+        if (!date) return;
+        const row = rows.find(item => item.date === date) || normalizeRow({ date, seats: {} });
+        const seatName = resolveSeatName(pick(record, ["席位", "券商", "参与者", "participant", "broker"]));
+        if (seatName) {
+          row.seats[seatName] = {
+            holding: toNumber(pick(record, ["持股数", "持仓", "holding", "shares"])),
+            ratio: normalizeRatio(pick(record, ["持股比例", "比例", "ratio", "percent"])),
+            netChange: toNumber(pick(record, ["净变动股数", "净变动", "变动", "netChange", "change"]))
+          };
+        } else {
+          SEAT_NAMES.forEach(name => {
+            const holding = pick(record, [`${name}持股数`, `${name}持股`, `${name}_holding`]);
+            const ratio = pick(record, [`${name}持股比例`, `${name}比例`, `${name}_ratio`]);
+            const netChange = pick(record, [`${name}净变动股数`, `${name}净变动`, `${name}_netChange`]);
+            if (holding !== "" || ratio !== "" || netChange !== "") {
+              row.seats[name] = { holding: toNumber(holding), ratio: normalizeRatio(ratio), netChange: toNumber(netChange) };
+            }
+          });
+        }
+        upsertRow(evaluateRow(row));
+      });
+    }
+
+    function pick(record, names) {
+      const keys = Object.keys(record);
+      for (const name of names) {
+        const key = keys.find(k => String(k).trim().toLowerCase() === String(name).trim().toLowerCase());
+        if (key) return record[key];
+      }
+      return "";
+    }
+
+    function normalizeImportedPct(value) {
+      if (value === "" || value === null || value === undefined) return null;
+      const text = String(value);
+      const num = toNumber(text);
+      if (num === null) return null;
+      return text.includes("%") || Math.abs(num) > 1 ? num / 100 : num;
+    }
+
+    function resolveSeatName(value) {
+      const text = String(value || "").toLowerCase();
+      return SEAT_NAMES.find(name => SEAT_ALIASES[name].some(alias => text.includes(alias.toLowerCase()))) || "";
+    }
+
+    function upsertRow(row) {
+      const index = rows.findIndex(item => item.date === row.date);
+      if (index >= 0) rows[index] = row;
+      else rows.push(row);
+    }
+
+    function rowsForExport() {
+      return rows.slice().sort(sortAsc).map(row => {
+        const base = {
+          "日期": row.date,
+          "开盘价": raw(row.open),
+          "最高价": raw(row.high),
+          "最低价": raw(row.low),
+          "收盘价": raw(row.close),
+          "涨跌幅": raw(row.changePct),
+          "成交量": raw(row.volume),
+          "成交额(HK$)": raw(row.turnover),
+          "VWAP": raw(row.vwap),
+          "振幅": raw(row.amplitude),
+          "5日均量倍数": raw(row.volumeMultiple),
+          "是否预警": row.alert,
+          "当前判断": row.decision,
+          "供股窗口": row.rightsWindow,
+          "建议动作": row.action
+        };
+        SEAT_NAMES.forEach(name => {
+          base[`${name}持股数`] = raw(row.seats[name].holding);
+          base[`${name}持股比例`] = raw(row.seats[name].ratio);
+          base[`${name}净变动`] = raw(row.seats[name].netChange);
+        });
+        return base;
+      });
+    }
+
+    function exportAll() {
+      const headers = Object.keys(rowsForExport()[0] || Object.fromEntries(DATA_HEADERS.map(h => [h, ""])));
+      const lines = [headers].concat(rowsForExport().map(row => headers.map(h => row[h])));
+      downloadCsv(`06610_monitor_all_${todayHongKong()}.csv`, lines);
+    }
+
+    function exportDailyReport() {
+      const row = latestRow();
+      if (!row) {
+        alert("暂无日报可导出。");
+        return;
+      }
+      const alertRows = rows.filter(item => item.date === row.date && item.alert === "是");
+      const lines = [
+        ["06610 CEO日报", row.date],
+        [],
+        ["CEO日报"],
+        [row.brief],
+        [],
+        DATA_HEADERS,
+        [
+          row.date, raw(row.open), raw(row.high), raw(row.low), raw(row.close), raw(row.changePct), raw(row.volume), raw(row.turnover),
+          raw(row.vwap), raw(row.amplitude), raw(row.volumeMultiple), row.alert, row.decision, row.rightsWindow, row.action
+        ],
+        [],
+        ["预警记录"],
+        ["日期", "级别", "触发原因", "建议动作", "供股窗口判断"],
+        ...alertRows.map(item => [item.date, item.decision, item.warnings.join("；"), item.action, `${item.rightsWindow}：${item.rightsReason}`])
+      ];
+      downloadCsv(`06610_ceo_daily_report_${row.date}.csv`, lines);
+    }
+
+    function downloadCsv(filename, matrix) {
+      const content = "\ufeff" + matrix.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      downloadFile(filename, content, "text/csv;charset=utf-8");
+    }
+
+    function downloadFile(filename, content, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function clearRows() {
+      if (!confirm("确认清空本浏览器保存的全部 06610 监控记录？")) return;
+      rows = [];
+      persistRows();
+      initializeForm();
+      renderAll();
+    }
+
+    function raw(value) {
+      return value === null || value === undefined ? "" : value;
+    }
+
+    function formatNumber(value, digits = 2) {
+      if (value === null || value === undefined || value === "") return "--";
+      return Number(value).toLocaleString("zh-HK", {
+        maximumFractionDigits: digits,
+        minimumFractionDigits: Number(value) % 1 ? Math.min(digits, 3) : 0
+      });
+    }
+
+    function formatMoney(value) {
+      if (value === null || value === undefined || value === "") return "--";
+      return Number(value).toFixed(3);
+    }
+
+    function formatPct(value) {
+      if (value === null || value === undefined || value === "") return "--";
+      return `${(Number(value) * 100).toFixed(2)}%`;
+    }
+
+    function formatSigned(value) {
+      if (value === null || value === undefined || value === "") return "--";
+      const num = Number(value);
+      return `${num > 0 ? "+" : ""}${formatNumber(num, 0)}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+  </script>
+</body>
+</html>
