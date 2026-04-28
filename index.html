@@ -357,6 +357,31 @@
       font-weight: 400;
     }
 
+    .filter-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 12px 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .filter-row {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) minmax(160px, 1fr) auto auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .filter-row .field { min-width: 0; }
+
+    .filter-summary {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
     .rules {
       margin: 0;
       padding-left: 18px;
@@ -370,6 +395,7 @@
       .toolbar { justify-content: flex-start; }
       .form-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
       .seat-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+      .filter-row { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
       .table-shell { max-height: none; }
     }
 
@@ -378,6 +404,7 @@
       h1 { font-size: 18px; }
       .metric-value { font-size: 19px; }
       .toolbar button, .file-button, .tab { flex: 1 1 100%; }
+      .filter-row { grid-template-columns: 1fr; }
       .form-grid, .seat-grid { grid-template-columns: 1fr; }
       .decision-row { grid-template-columns: 1fr; }
     }
@@ -415,6 +442,27 @@
         <button class="tab" data-page="daily">每日数据表</button>
         <button class="tab" data-page="alerts">预警记录</button>
       </div>
+
+      <section class="filter-panel" aria-label="日期筛选">
+        <div class="filter-row">
+          <div class="field">
+            <label for="viewDate">选择日期查看当天数据</label>
+            <input id="viewDate" type="date">
+          </div>
+          <button id="viewDateBtn" onclick="viewSelectedDate()">查看当天</button>
+          <div class="field">
+            <label for="rangeStart">阶段开始</label>
+            <input id="rangeStart" type="date">
+          </div>
+          <div class="field">
+            <label for="rangeEnd">阶段结束</label>
+            <input id="rangeEnd" type="date">
+          </div>
+          <button id="viewRangeBtn" onclick="viewSelectedRange()">查看阶段</button>
+          <button id="resetFilterBtn" onclick="resetDateFilter()">查看全部</button>
+        </div>
+        <div class="filter-summary" id="filterSummary">当前显示全部数据。</div>
+      </section>
 
       <section class="page active" id="page-dashboard">
         <div class="status-strip">
@@ -648,8 +696,15 @@
     const inputs = {};
     const scalarIds = ["date", "open", "high", "low", "close", "changePct", "volume", "turnover", "vwap", "amplitude", "manualStatus", "role", "note"];
     scalarIds.forEach(id => inputs[id] = document.getElementById(id));
+    const filters = {
+      viewDate: document.getElementById("viewDate"),
+      rangeStart: document.getElementById("rangeStart"),
+      rangeEnd: document.getElementById("rangeEnd"),
+      summary: document.getElementById("filterSummary")
+    };
 
     let rows = mergeInitialRows(migrateRows(loadRows()));
+    let activeFilter = { mode: "all", date: "", start: "", end: "" };
     buildSeatInputs();
     bindEvents();
     initializeForm();
@@ -790,7 +845,32 @@
     function initializeForm() {
       inputs.date.value = todayHongKong();
       inputs.role.value = "证券代表";
-      if (rows.length) setFormFromRow(latestRow());
+      initializeFilterDefaults();
+      if (rows.length) setFormFromRow(getDashboardRow() || latestRow());
+    }
+
+    function initializeFilterDefaults() {
+      if (!rows.length) return;
+      const sorted = rows.slice().sort(sortAsc);
+      const first = sorted[0].date;
+      const last = sorted[sorted.length - 1].date;
+      [filters.viewDate, filters.rangeStart, filters.rangeEnd].forEach(input => {
+        input.min = first;
+        input.max = last;
+      });
+      if (activeFilter.mode === "single") {
+        filters.viewDate.value = activeFilter.date;
+      } else if (!filters.viewDate.value) {
+        filters.viewDate.value = last;
+      }
+      if (activeFilter.mode === "range") {
+        filters.rangeStart.value = activeFilter.start;
+        filters.rangeEnd.value = activeFilter.end;
+      } else {
+        if (!filters.rangeStart.value) filters.rangeStart.value = first;
+        if (!filters.rangeEnd.value) filters.rangeEnd.value = last;
+      }
+      updateFilterSummary();
     }
 
     function switchPage(page) {
@@ -1049,13 +1129,14 @@
     function renderAll() {
       rows = rows.map(item => evaluateRow(item)).sort(sortAsc);
       persistRows();
+      initializeFilterDefaults();
       renderDashboard();
       renderDailyTable();
       renderAlertTable();
     }
 
     function renderDashboard() {
-      const row = latestRow();
+      const row = getDashboardRow();
       const set = (id, text, cls = "") => {
         const el = document.getElementById(id);
         el.textContent = text;
@@ -1083,6 +1164,81 @@
       document.getElementById("actionText").textContent = row.action;
     }
 
+    function getDashboardRow() {
+      const visible = filteredRows();
+      return visible.length ? visible.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] : null;
+    }
+
+    function filteredRows() {
+      const sorted = rows.slice().sort(sortAsc);
+      if (activeFilter.mode === "single") return sorted.filter(row => row.date === activeFilter.date);
+      if (activeFilter.mode === "range") {
+        return sorted.filter(row => (!activeFilter.start || row.date >= activeFilter.start) && (!activeFilter.end || row.date <= activeFilter.end));
+      }
+      return sorted;
+    }
+
+    function viewSelectedDate() {
+      const date = filters.viewDate.value;
+      if (!date) {
+        alert("请先选择日期。");
+        return;
+      }
+      const row = rows.find(item => item.date === date);
+      if (!row) {
+        alert(`未找到 ${date} 的数据。`);
+        return;
+      }
+      activeFilter = { mode: "single", date, start: "", end: "" };
+      setFormFromRow(row);
+      updateFilterSummary();
+      renderAll();
+      switchPage("dashboard");
+    }
+
+    function viewSelectedRange() {
+      const start = filters.rangeStart.value;
+      const end = filters.rangeEnd.value;
+      if (!start || !end) {
+        alert("请选择阶段开始和结束日期。");
+        return;
+      }
+      if (start > end) {
+        alert("阶段开始日期不能晚于结束日期。");
+        return;
+      }
+      activeFilter = { mode: "range", date: "", start, end };
+      const row = getDashboardRow();
+      if (row) setFormFromRow(row);
+      updateFilterSummary();
+      renderAll();
+      switchPage("daily");
+    }
+
+    function resetDateFilter() {
+      activeFilter = { mode: "all", date: "", start: "", end: "" };
+      if (rows.length) setFormFromRow(latestRow());
+      updateFilterSummary();
+      renderAll();
+    }
+
+    function updateFilterSummary() {
+      if (!filters.summary) return;
+      const visible = filteredRows();
+      const alertCount = visible.filter(row => row.alert === "是").length;
+      if (activeFilter.mode === "single") {
+        filters.summary.textContent = visible.length
+          ? `当前查看 ${activeFilter.date} 当天数据。`
+          : `当前查看 ${activeFilter.date}，暂无数据。`;
+        return;
+      }
+      if (activeFilter.mode === "range") {
+        filters.summary.textContent = `当前查看 ${activeFilter.start} 至 ${activeFilter.end} 阶段数据，共 ${visible.length} 个交易日，预警 ${alertCount} 条。`;
+        return;
+      }
+      filters.summary.textContent = `当前显示全部数据，共 ${visible.length} 个交易日，预警 ${alertCount} 条。`;
+    }
+
     function renderDailyTable() {
       const table = document.getElementById("dailyTable");
       const extraHeaders = SEAT_NAMES.flatMap(name => [`${name}持股数`, `${name}持股比例`, `${name}净变动`]);
@@ -1090,8 +1246,9 @@
       table.querySelector("thead").innerHTML = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
       const tbody = table.querySelector("tbody");
       tbody.innerHTML = "";
-      document.getElementById("dailyEmpty").style.display = rows.length ? "none" : "block";
-      rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).forEach(row => {
+      const visibleRows = filteredRows().slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      document.getElementById("dailyEmpty").style.display = visibleRows.length ? "none" : "block";
+      visibleRows.forEach(row => {
         const rowClass = row.alert === "是" ? "alert-row" : row.rightsWindow === "接近观察区" ? "watch-row" : "";
         const cells = [
           row.date, formatMoney(row.open), formatMoney(row.high), formatMoney(row.low), formatMoney(row.close), formatPct(row.changePct),
@@ -1113,7 +1270,7 @@
     }
 
     function renderAlertTable() {
-      const alerts = rows.filter(row => row.alert === "是");
+      const alerts = filteredRows().filter(row => row.alert === "是");
       document.getElementById("alertCount").textContent = `${alerts.length} 条`;
       document.getElementById("alertEmpty").style.display = alerts.length ? "none" : "block";
       const tbody = document.querySelector("#alertTable tbody");
@@ -1404,7 +1561,7 @@
     }
 
     function exportDailyReport() {
-      const row = latestRow();
+      const row = getDashboardRow();
       if (!row) {
         alert("暂无日报可导出。");
         return;
