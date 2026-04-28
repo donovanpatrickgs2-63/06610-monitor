@@ -369,7 +369,7 @@
 
     .filter-row {
       display: grid;
-      grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) minmax(160px, 1fr) auto auto;
+      grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) minmax(160px, 1fr) auto auto auto;
       gap: 8px;
       align-items: end;
     }
@@ -460,6 +460,7 @@
           </div>
           <button id="viewRangeBtn" onclick="viewSelectedRange()">查看阶段</button>
           <button id="resetFilterBtn" onclick="resetDateFilter()">查看全部</button>
+          <button id="repairSeedBtn" onclick="repairInitialRows()">补齐历史</button>
         </div>
         <div class="filter-summary" id="filterSummary">当前显示全部数据。</div>
       </section>
@@ -659,7 +660,7 @@
     </main>
   </div>
 
-  <script src="seed-06610.js"></script>
+  <script src="seed-06610.js?v=20260428-history"></script>
   <script>
     const STORAGE_KEY = "hk06610MvpRows";
     const LEGACY_KEY = "hk06610DailyMonitorRows";
@@ -1220,6 +1221,26 @@
       if (rows.length) setFormFromRow(latestRow());
       updateFilterSummary();
       renderAll();
+    }
+
+    function repairInitialRows() {
+      if (!Array.isArray(window.INITIAL_SEED_ROWS) || !window.INITIAL_SEED_ROWS.length) {
+        alert("内置历史数据文件尚未加载，请刷新页面后再试。");
+        return;
+      }
+      const before = rows.length;
+      rows = mergeInitialRows(rows).map(item => evaluateRow(item)).sort(sortAsc);
+      persistRows();
+      activeFilter = { mode: "all", date: "", start: "", end: "" };
+      filters.viewDate.value = "";
+      filters.rangeStart.value = "";
+      filters.rangeEnd.value = "";
+      initializeFilterDefaults();
+      if (rows.length) setFormFromRow(latestRow());
+      renderAll();
+      const first = rows.length ? rows[0].date : "--";
+      const last = rows.length ? rows[rows.length - 1].date : "--";
+      alert(`已补齐内置历史数据：${first} 至 ${last}，当前共 ${rows.length} 个交易日。原本 ${before} 条。`);
     }
 
     function updateFilterSummary() {
