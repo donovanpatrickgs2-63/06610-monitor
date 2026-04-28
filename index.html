@@ -447,16 +447,16 @@
         <div class="filter-row">
           <div class="field">
             <label for="viewDate">选择日期查看当天数据</label>
-            <input id="viewDate" type="date">
+            <select id="viewDate"></select>
           </div>
           <button id="viewDateBtn" onclick="viewSelectedDate()">查看当天</button>
           <div class="field">
             <label for="rangeStart">阶段开始</label>
-            <input id="rangeStart" type="date">
+            <select id="rangeStart"></select>
           </div>
           <div class="field">
             <label for="rangeEnd">阶段结束</label>
-            <input id="rangeEnd" type="date">
+            <select id="rangeEnd"></select>
           </div>
           <button id="viewRangeBtn" onclick="viewSelectedRange()">查看阶段</button>
           <button id="resetFilterBtn" onclick="resetDateFilter()">查看全部</button>
@@ -855,10 +855,10 @@
       const sorted = rows.slice().sort(sortAsc);
       const first = sorted[0].date;
       const last = sorted[sorted.length - 1].date;
-      [filters.viewDate, filters.rangeStart, filters.rangeEnd].forEach(input => {
-        input.min = first;
-        input.max = last;
-      });
+      const dates = sorted.map(row => row.date);
+      populateDateSelect(filters.viewDate, dates, activeFilter.mode === "single" ? activeFilter.date : filters.viewDate.value || last);
+      populateDateSelect(filters.rangeStart, dates, activeFilter.mode === "range" ? activeFilter.start : filters.rangeStart.value || first);
+      populateDateSelect(filters.rangeEnd, dates, activeFilter.mode === "range" ? activeFilter.end : filters.rangeEnd.value || last);
       if (activeFilter.mode === "single") {
         filters.viewDate.value = activeFilter.date;
       } else if (!filters.viewDate.value) {
@@ -872,6 +872,12 @@
         if (!filters.rangeEnd.value) filters.rangeEnd.value = last;
       }
       updateFilterSummary();
+    }
+
+    function populateDateSelect(select, dates, selected) {
+      const current = dates.includes(selected) ? selected : dates[dates.length - 1];
+      select.innerHTML = dates.map(date => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
+      select.value = current;
     }
 
     function switchPage(page) {
