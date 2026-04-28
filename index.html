@@ -611,6 +611,7 @@
     </main>
   </div>
 
+  <script src="seed-06610.js"></script>
   <script>
     const STORAGE_KEY = "hk06610MvpRows";
     const LEGACY_KEY = "hk06610DailyMonitorRows";
@@ -631,7 +632,7 @@
       "招商": ["招商", "cmb", "cms"]
     };
     const WEBB_SEAT_MATCHERS = {
-      "富途": [/B01955/i, /FUTU/i],
+      "富途": [/B01955/i, /FUTU SECURITIES/i, /富途/i],
       "中金": [/B01654/i, /CHINA INTERNATIONAL CAPITAL/i, /中國國際金融/i],
       "京华山一": [/B01581/i, /KINGSWAY/i, /京華山一/i],
       "耀才": [/B01668/i, /BRIGHT SMART/i, /耀才/i],
@@ -648,7 +649,7 @@
     const scalarIds = ["date", "open", "high", "low", "close", "changePct", "volume", "turnover", "vwap", "amplitude", "manualStatus", "role", "note"];
     scalarIds.forEach(id => inputs[id] = document.getElementById(id));
 
-    let rows = migrateRows(loadRows());
+    let rows = mergeInitialRows(migrateRows(loadRows()));
     buildSeatInputs();
     bindEvents();
     initializeForm();
@@ -693,6 +694,49 @@
         if (!migrated.seats["中金"].netChange && row.ciccNet !== undefined) migrated.seats["中金"].netChange = toNumber(row.ciccNet);
         return migrated;
       });
+    }
+
+    function mergeInitialRows(existingRows) {
+      const seedRows = Array.isArray(window.INITIAL_SEED_ROWS) ? window.INITIAL_SEED_ROWS : [];
+      if (!seedRows.length) return existingRows;
+      const merged = existingRows.map(row => normalizeRow(row));
+
+      seedRows.forEach(seed => {
+        const seedRow = normalizeRow(seed);
+        const index = merged.findIndex(row => row.date === seedRow.date);
+        if (index >= 0) {
+          merged[index] = mergeRowsPreferUser(seedRow, merged[index]);
+        } else {
+          merged.push(seedRow);
+        }
+      });
+
+      return merged.sort(sortAsc);
+    }
+
+    function mergeRowsPreferUser(seedRow, userRow) {
+      const merged = { ...seedRow, ...userRow, seats: {} };
+      ["open", "high", "low", "close", "changePct", "volume", "turnover", "vwap", "amplitude"].forEach(field => {
+        if (isBlank(userRow[field])) merged[field] = seedRow[field];
+      });
+      merged.manualStatus = userRow.manualStatus || seedRow.manualStatus;
+      merged.role = userRow.role || seedRow.role;
+      merged.note = userRow.note || seedRow.note;
+
+      SEAT_NAMES.forEach(name => {
+        const seedSeat = seedRow.seats[name] || {};
+        const userSeat = userRow.seats[name] || {};
+        merged.seats[name] = {
+          holding: isBlank(userSeat.holding) ? seedSeat.holding : userSeat.holding,
+          ratio: isBlank(userSeat.ratio) ? seedSeat.ratio : userSeat.ratio,
+          netChange: isBlank(userSeat.netChange) ? seedSeat.netChange : userSeat.netChange
+        };
+      });
+      return merged;
+    }
+
+    function isBlank(value) {
+      return value === null || value === undefined || value === "";
     }
 
     function buildSeatInputs() {
